@@ -350,12 +350,14 @@ class Qwen2Model(nn.Module):
 
         #seq_len = input_embeds.shape[1]
         #causal_mask = create_causal_mask(seq_len, input_embeds.device, input_embeds.dtype)
-        if use_cache and self.current_pos > 0:
-            total_seq_len = self.current_pos + input_embeds.shape[1]
-            causal_mask = create_causal_mask(total_seq_len, input_embeds.device, input_embeds.dtype)
+        if use_cache and hasattr(self.layers[0].self_attn, 'cache_k') and self.layers[0].self_attn.cache_k is not None:
+            query_len = input_embeds.shape[1]
+            key_len = self.layers[0].self_attn.cache_k.shape[2] + query_len
+            causal_mask = create_causal_mask(key_len, input_embeds.device, input_embeds.dtype)
         else:
             seq_len = input_embeds.shape[1]
             causal_mask = create_causal_mask(seq_len, input_embeds.device, input_embeds.dtype)
+
         causal_mask_mapping = {
             "full_attention": causal_mask,
             "sliding_attention": causal_mask,
@@ -442,5 +444,5 @@ def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top
 
             logits = model(next_token_id.unsqueeze(0), use_cache=True)
 
-    generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+    generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
     return generated_text
