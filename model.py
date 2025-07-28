@@ -303,22 +303,46 @@ class Qwen2ForCausalLM(nn.Module):
         logits = self.lm_head(hidden_states)
         return logits
 
-def generate_text(model, tokenizer, prompt, max_length=100, temperature=1.0):
+def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top_p=0.9, repetition_penalty=1.1):
     model.eval()
 
     input_ids = tokenizer.encode(prompt, return_tensors='pt')
+    original_length = input_ids.shape[1]
+
+    # track for repetition penalty
+    generated_tokens = []
 
     with torch.no_grad():
         for _ in range(max_length):
             logits = model(input_ids)
+            next_token_logits = logits[0, -1, :].clone()
 
-            next_token_logits = logits[0, -1, :] / temperature
+            if generated_tokens:
+                for token_id in set(generated_tokens):
+                    if next_token_logits[token_id] < 0:
+                        next_token_logits[token_id] *= repetition_penalty
+                    else:
+                        next_token_logits[token_id] /= repetition_penalty
 
-            next_token_id = torch.multinomial(
-                torch.softmax(next_token_logits, dim=-1),
-                num_samples=1
-            )
+            next_token_logits = next_token_logits / temperature
 
+            # apply top-p sampling
+            sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
+            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+
+            # remove tokens with cumulative probability above threshold
+            sorted_indices_to_remove = cumulative_probs > top_p
+            # shift indices to the right
+            sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
+            sorted_indices_to_remove[0] = False
+
+            indices_to_remove = sorted_indices[sorted_indices_to_remove]
+            next_token_logits[indices_to_remove] = float('-inf')
+
+            # sample from filtered distribution
+            probs = torch.softmax(next_token_logits, dim=-1)
+            next_token_id = torch.multinomial(probs, num_samples=1)
+            generated_tokens.append(next_token_id.item())
             input_ids = torch.cat([input_ids, next_token_id.unsqueeze(0)], dim=1)
 
             if next_token_id.item() == tokenizer.eos_token_id:

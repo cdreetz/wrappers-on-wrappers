@@ -3,22 +3,65 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from configuration_qwen2 import Qwen2Config
 from model import Qwen2ForCausalLM, generate_text
 
-config = Qwen2Config()
-hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-1.5B-Instruct")
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-1.5B-Instruct")
 
-qwen = Qwen2ForCausalLM(config)
-missing, unexpected = qwen.load_state_dict(hf_model.state_dict(), strict=False)
-qwen.eval()
+def try_my_qwen(prompt):
+    config = Qwen2Config()
+    qwen = Qwen2ForCausalLM(config)
+    missing, unexpected = qwen.load_state_dict(hf_model.state_dict(), strict=False)
+    qwen.eval()
 
-prompt = "How many r's are there in strawberry?"
-print(f"Starting generation for: '{prompt}'")
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ]
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
 
-with torch.no_grad():
+    print(f"Starting generation for: '{prompt}'")
     output = generate_text(qwen, tokenizer, prompt, max_length=100)
     print(f"Output: {output}")
+    return output
 
-    inputs = tokenizer(prompt, return_tensors="pt")
-    hf_output = hf_model.generate(**inputs, max_length=100, do_sample=False)
-    hf_text = tokenizer.decode(hf_output[0], skip_special_tokens=True)
-    print("Official model output: {hf_text}")
+
+def try_hf_qwen(prompt, hf_model, tokenizer):
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ]
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+    model_inputs = tokenizer([text], return_tensors="pt").to(hf_model.device)
+
+    generated_ids = hf_model.generate(
+        **model_inputs,
+        max_new_tokens=512
+    )
+    generated_ids = [
+        output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+    ]
+
+    response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    return response
+
+
+if __name__ == "__main__":
+    model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+    prompt = "How many r's are there in strawberry?"
+    hf_model = AutoModelForCausalLM.from_pretrained(model_name,torch_dtype="auto",device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    print("=="*20)
+    print("trying my qwen")
+    my_qwen = try_my_qwen(prompt)
+    print(my_qwen)
+
+    print("=="*20)
+    print("trying hf qwen")
+    hf_qwen = try_hf_qwen(prompt, hf_model, tokenizer)
+    print(hf_qwen)
