@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from typing import Optional, Callable
-from transformers.masking_utils import create_sliding_window_causal_mask
 
 from configuration_qwen2 import Qwen2Config
 
