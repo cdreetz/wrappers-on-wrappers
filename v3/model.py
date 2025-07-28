@@ -235,7 +235,7 @@ class DecoderLayer(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         #past_key_value: Optional[Cache] = None,
-        #use_cache: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
         #cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> tuple[torch.Tensor]:
@@ -248,7 +248,7 @@ class DecoderLayer(nn.Module):
             attention_mask=attention_mask,
             #position_ids=position_ids,
             #past_key_value=past_key_value,
-            #use_cache=use_cache,
+            use_cache=use_cache,
             #cache_position=cache_position,
             position_embeddings=position_embeddings,
         )
@@ -319,7 +319,7 @@ class Qwen2Model(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         #past_key_values: Optional[Cache] = None,
         input_embeds: Optional[torch.FloatTensor] = None,
-        #use_cache: Optional[bool] = None,
+        use_cache: Optional[bool] = None,
         #cache_position: Optional[torch.LongTensor] = None,
     ) -> torch.Tensor:
         if input_embeds is None:
@@ -339,8 +339,14 @@ class Qwen2Model(nn.Module):
         if position_ids is None:
             position_ids = torch.arange(input_embeds.shape[1], device=input_embeds.device).unsqueeze(0)
 
-        seq_len = input_embeds.shape[1]
-        causal_mask = create_causal_mask(seq_len, input_embeds.device, input_embeds.dtype)
+        #seq_len = input_embeds.shape[1]
+        #causal_mask = create_causal_mask(seq_len, input_embeds.device, input_embeds.dtype)
+        if use_cache and self.current_pos > 0:
+            total_seq_len = self.current_pos + input_embeds.shape[1]
+            causal_mask = create_causal_mask(total_seq_len, input_embeds.device, input_embeds.dtype)
+        else:
+            seq_len = input_embeds.shape[1]
+            causal_mask = create_causal_mask(seq_len, input_embeds.device, input_embeds.dtype)
         causal_mask_mapping = {
             "full_attention": causal_mask,
             "sliding_attention": causal_mask,
@@ -354,7 +360,8 @@ class Qwen2Model(nn.Module):
                 hidden_states,
                 attention_mask=causal_mask_mapping[decoder_layer.attention_type],
                 position_ids=position_ids,
-                position_embeddings=position_embeddings
+                position_embeddings=position_embeddings,
+                use_cache=use_cache
             )
 
         hidden_states = self.norm(hidden_states)
@@ -368,11 +375,12 @@ class Qwen2ForCausalLM(nn.Module):
         self.model = Qwen2Model(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-    def forward(self, input_ids, attention_mask=None, position_ids=None):
+    def forward(self, input_ids, attention_mask=None, position_ids=None, use_cache=False):
         hidden_states = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            position_ids=position_ids
+            position_ids=position_ids,
+            use_cache=use_cache
         )
         logits = self.lm_head(hidden_states)
         return logits
@@ -383,12 +391,14 @@ def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top
     input_ids = tokenizer.encode(prompt, return_tensors='pt').to(device)
     original_length = input_ids.shape[1]
 
+    model.model.reset_kv_cache()
+
     # track for repetition penalty
     generated_tokens = []
 
     with torch.no_grad():
         for _ in range(max_length):
-            logits = model(input_ids)
+            logits = model(input_ids, use_cache=True)
             next_token_logits = logits[0, -1, :].clone()
 
             if generated_tokens:
@@ -417,10 +427,11 @@ def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top
             probs = torch.softmax(next_token_logits, dim=-1)
             next_token_id = torch.multinomial(probs, num_samples=1)
             generated_tokens.append(next_token_id.item())
-            input_ids = torch.cat([input_ids, next_token_id.unsqueeze(0)], dim=1)
 
             if next_token_id.item() == tokenizer.eos_token_id:
                 break
 
-    generated_text = tokenizer.decode(input_ids[0][original_length:], skip_special_tokens=True)
+            logits = model(next_token_id.unsqueeze(0), use_cache=True)
+
+    generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
     return generated_text
