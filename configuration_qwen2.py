@@ -99,44 +99,5 @@ class Qwen2Config(PretrainedConfig):
             **kwargs,
         )
 
-# Create a new file: simple_config.py
-class SimpleQwen2Config:
-    def __init__(
-        self,
-        vocab_size=151936,
-        hidden_size=1536,  # Match your comment dimensions
-        intermediate_size=8960,  # Match your comment dimensions
-        num_hidden_layers=24,
-        num_attention_heads=12,  # 1536/128 = 12 heads
-        num_key_value_heads=2,   # Match your comment (256/128 = 2 heads)
-        hidden_act="silu", 
-        max_position_embeddings=32768,
-        rms_norm_eps=1e-6,
-        rope_theta=10000.0,
-        attention_dropout=0.0,
-        pad_token_id=151643,
-        **kwargs,
-    ):
-        self.vocab_size = vocab_size
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size
-        self.num_hidden_layers = num_hidden_layers
-        self.num_attention_heads = num_attention_heads
-        self.num_key_value_heads = num_key_value_heads
-        self.hidden_act = hidden_act
-        self.max_position_embeddings = max_position_embeddings
-        self.rms_norm_eps = rms_norm_eps
-        self.rope_theta = rope_theta
-        self.attention_dropout = attention_dropout
-        self.pad_token_id = pad_token_id
-        
-        # Simple layer types - all full attention
-        self.layer_types = ["full_attention"] * self.num_hidden_layers
-        
-        # Sliding window disabled for simplicity
-        self.use_sliding_window = False
-        self.sliding_window = None
-        self.rope_scaling = None
 
-
-__all__ = ["Qwen2Config"]
+_all__ = ["Qwen2Config"]
