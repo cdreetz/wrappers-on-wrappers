@@ -105,7 +105,6 @@ def rmsnorm_kernel(
     tl.store(output_ptr + row_idx * n_cols + col_offsets, output, mask=mask)
 
 def triton_rmsnorm(x, weight, eps=1e-06):
-    print(f"triton rmsnorm called with: {x.shape}")
     batch_size, seq_len, hidden_size = x.shape
     n_rows = batch_size * seq_len
 
@@ -336,8 +335,18 @@ class Qwen2Model(nn.Module):
 
         #if position_ids is None:
         #    position_ids = cache_position.unsqueeze(0)
+        #if position_ids is None:
+        #    position_ids = torch.arange(input_embeds.shape[1], device=input_embeds.device).unsqueeze(0)
         if position_ids is None:
-            position_ids = torch.arange(input_embeds.shape[1], device=input_embeds.device).unsqueeze(0)
+            if use_cache:
+                pos_ids = torch.arange(
+                    self.current_pos, self.current_pos + input_embeds.shape[1],
+                    device=input_embeds.device, dtype=torch.long
+                ).unsqueeze(0)
+                self.current_pos += input_embeds.shape[1]
+                position_ids = pos_ids
+            else:
+                position_ids = torch.arange(input_embeds.shape[1], device=input_embeds.device)
 
         #seq_len = input_embeds.shape[1]
         #causal_mask = create_causal_mask(seq_len, input_embeds.device, input_embeds.dtype)
